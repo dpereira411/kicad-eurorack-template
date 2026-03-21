@@ -1,0 +1,35 @@
+# Copier configuration — Eurorack KiCad module template
+# Usage: copier copy gh:dpereira411/kicad-eurorack-template my-module
+
+_skip_if_exists:
+  - "{{ project_name }}.kicad_sch"
+  - "{{ project_name }}.kicad_pcb"
+
+_exclude:
+  - ".git"
+  - "copier.yml"
+  - "~*.lck"
+
+# ---------------------------------------------------------------------------
+# Questions
+# ---------------------------------------------------------------------------
+
+project_name:
+  type: str
+  help: "Module name:"
+  placeholder: "my_module"
+
+project_description:
+  type: str
+  help: "Module description:"
+  placeholder: "A Eurorack module that..."
+
+hp:
+  type: int
+  help: "Width in HP"
+  default: 8
+
+max_depth_mm:
+  type: int
+  help: "Maximum depth in mm"
+  default: 25

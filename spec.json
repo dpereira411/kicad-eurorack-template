@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "project": {
+    "name": "{{ project_name }}",
+    "goal": "{{ project_description }}",
+    "revision": "1.0"
+  },
+  "format": {
+    "standard": "eurorack",
+    "hp": {{ hp }},
+    "max_depth_mm": {{ max_depth_mm }}
+  },
+  "io": [],
+  "signal_domains": {},
+  "design_intent": {
+    "functional_behavior": [],
+    "signal_levels": {
+      "logic_high_min_v": 2.0,
+      "logic_low_max_v": 0.8,
+      "target_output_high_v": 5.0
+    },
+    "io_expectations": {
+      "input_type": "",
+      "output_type": ""
+    }
+  },
+  "key_ics": [],
+  "concerns": [],
+  "constraints": {
+    "power": {
+      "supply_rails": [
+        "+12V",
+        "-12V",
+        "GND"
+      ],
+      "logic_rail_v": 5.0
+    },
+    "manufacturing": {
+      "assembler": "JLCPCB",
+      "allow_dnp": true
+    },
+    "safety": {
+      "must_have_output_series_resistor_ohm_min": 100
+    }
+  },
+  "review_policy": {
+    "strict_intent_validation": true,
+    "mode_defaults": [
+      "erc",
+      "design",
+      "mfg",
+      "risk"
+    ],
+    "severity_threshold": "warning"
+  }
+}

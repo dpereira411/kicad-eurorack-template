@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""
+erc-fmt: Format KiCad ERC JSON into human-readable output grouped by symbol.
+Usage: bin/erc <file.kicad_sch> | bin/erc-fmt [options] [schematic_name]
+
+Options:
+  -n, --no-color       Strip ANSI color codes
+  -e, --errors-only    Show only errors
+  -w, --warnings-only  Show only warnings
+"""
+
+import json
+import os
+import subprocess
+import sys
+import re
+from collections import defaultdict, Counter
+
+# ── ANSI codes ─────────────────────────────────────────────────────────────────
+_RESET  = "\x1b[0m"
+_BOLD   = "\x1b[1m"
+_DIM    = "\x1b[2m"
+_RED    = "\x1b[31m"
+_YELLOW = "\x1b[33m"
+
+# Bulk warning types get compact display (one line per symbol)
+BULK_TYPES = {"footprint_link_issues", "lib_symbol_issues"}
+
+# Column widths
+COL_TYPE  = 26   # violation type
+COL_LABEL = 32   # item label
+
+# KiCad ERC JSON stores positions in units of 0.01 mm
+POS_SCALE = 100.0
+
+
+def parse_args():
+    no_color = errors_only = warnings_only = False
+    sch_file = None   # .kicad_sch to run erc on directly
+    name = None       # display name only
+    for a in sys.argv[1:]:
+        if a in ("-n", "--no-color"):
+            no_color = True
+        elif a in ("-e", "--errors-only"):
+            errors_only = True
+        elif a in ("-w", "--warnings-only"):
+            warnings_only = True
+        elif a.startswith("-"):
+            print(f"Unknown option: {a}", file=sys.stderr)
+            sys.exit(1)
+        elif a.endswith(".kicad_sch"):
+            sch_file = a
+            name = os.path.basename(a)
+        else:
+            name = a
+    return no_color, errors_only, warnings_only, sch_file, name
+
+
+def extract_ref(item_desc):
+    """Return symbol reference (e.g. 'U12') or None."""
+    m = re.match(r"Symbol\s+(\S+)", item_desc)
+    return m.group(1) if m else None
+
+
+def item_label(item_desc):
+    """Clean item description for display."""
+    s = re.sub(r"^Symbol\s+\S+\s*", "", item_desc)
+    # Strip noise from bracket lists: remove ', Line' and ', Unconnected'
+    s = re.sub(r",\s*(?:Line|Unconnected)(?=[\],])", "", s)
+    return s
+
+
+def fmt_pos(pos):
+    x = pos.get("x", 0) * POS_SCALE
+    y = pos.get("y", 0) * POS_SCALE
+    return f"@({x:.2f}, {y:.2f})"
+
+
+def primary_ref(violation):
+    for item in violation.get("items", []):
+        ref = extract_ref(item["description"])
+        if ref:
+            return ref
+    return "[schematic]"
+
+
+def ref_sort_key(ref):
+    m = re.match(r"([A-Za-z_\[\]]+)(\d+)?", ref)
+    if m:
+        return (m.group(1), int(m.group(2)) if m.group(2) else 0)
+    return (ref, 0)
+
+
+def main():
+    no_color, errors_only, warnings_only, sch_file, name = parse_args()
+
+    # If a .kicad_sch file was given directly (not piped), invoke bin/erc on it
+    if sch_file:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        erc_bin = os.path.join(script_dir, "erc")
+        result = subprocess.run([erc_bin, sch_file], capture_output=True)
+        if result.returncode != 0:
+            sys.exit(f"erc-fmt: erc failed: {result.stderr.decode().strip()}")
+        sys.stdin = __import__("io").TextIOWrapper(
+            __import__("io").BytesIO(result.stdout)
+        )
+    elif sys.stdin.isatty():
+        sys.exit("Usage: bin/erc-fmt [options] <file.kicad_sch>\n"
+                 "       bin/erc <file.kicad_sch> | bin/erc-fmt [options]")
+
+    if no_color or not sys.stdout.isatty():
+        no_color = True
+
+    def clr(code, text):
+        return text if no_color else f"{code}{text}{_RESET}"
+
+    def bold(t):       return clr(_BOLD, t)
+    def dim(t):        return clr(_DIM, t)
+    def red(t):        return clr(f"{_RED}{_BOLD}", t)
+    def yellow(t):     return clr(_YELLOW, t)
+    def bold_ref(t):   return clr(_BOLD, t)       # bold white (default fg)
+
+    try:
+        data = json.load(sys.stdin)
+    except json.JSONDecodeError as e:
+        sys.exit(f"erc-fmt: invalid JSON: {e}")
+
+    # Collect all violations across sheets
+    violations = []
+    for sheet in data.get("sheets", []):
+        violations.extend(sheet.get("violations", []))
+
+    errors   = [v for v in violations if v["severity"] == "error"]
+    warnings = [v for v in violations if v["severity"] == "warning"]
+
+    erc_date = data.get("date", "")[:10]
+    title = "ERC Report" + (f" — {name}" if name else "")
+    WIDTH = 68
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    pad = WIDTH - len(title) - len(erc_date) - 2
+    print(f"  {bold(title)}{' ' * max(pad, 2)}{dim(erc_date)}")
+    print("  " + "━" * (WIDTH - 2))
+    err_s  = red(f"{len(errors)} errors")
+    warn_s = yellow(f"{len(warnings)} warnings")
+    print(f"  {err_s}  ·  {warn_s}  ·  {len(violations)} total")
+    print()
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+    def group(vlist):
+        g = defaultdict(list)
+        for v in vlist:
+            g[primary_ref(v)].append(v)
+        return g
+
+    def print_violation(v, marker_fn):
+        vtype = v["type"]
+        desc  = v["description"]
+        tpad  = f"{vtype:<{COL_TYPE}}"
+        print(f"    {marker_fn('✗' if marker_fn is red else '⚠')} {tpad} {desc}")
+        for item in v.get("items", []):
+            lbl  = item_label(item["description"])
+            pos  = dim(fmt_pos(item["pos"]))
+            lpad = f"{lbl:<{COL_LABEL}}"
+            print(f"      ↳ {lpad} {pos}")
+
+    # ── Errors ────────────────────────────────────────────────────────────────
+    if not warnings_only and errors:
+        rule = "─" * (WIDTH - 12)
+        print(f"  {red('✗')}  {bold('ERRORS')} {rule}")
+        print()
+        for ref in sorted(group(errors), key=ref_sort_key):
+            print(f"  {bold_ref(ref)}")
+            for v in group(errors)[ref]:
+                print_violation(v, red)
+            print()
+
+    # ── Warnings ──────────────────────────────────────────────────────────────
+    if not errors_only and warnings:
+        rule = "─" * (WIDTH - 14)
+        print(f"  {yellow('⚠')}  {bold('WARNINGS')} {rule}")
+        print()
+
+        bulk   = [v for v in warnings if v["type"] in BULK_TYPES]
+        others = [v for v in warnings if v["type"] not in BULK_TYPES]
+
+        if bulk:
+            counts = Counter(v["type"] for v in bulk)
+            summary = ", ".join(f"{n} {t}" for t, n in counts.most_common())
+            print(f"  {dim(summary + ' — likely missing KiCad library')}")
+            print()
+
+            # Compact: one line per symbol listing which bulk types it has
+            sym_type_desc = defaultdict(dict)  # ref -> {type: description}
+            for v in bulk:
+                ref = primary_ref(v)
+                sym_type_desc[ref].setdefault(v["type"], v.get("description", ""))
+
+            for ref in sorted(sym_type_desc, key=ref_sort_key):
+                rpad = f"{ref:<10}"
+                parts = []
+                for t in sorted(sym_type_desc[ref]):
+                    desc = sym_type_desc[ref][t]
+                    tag = yellow(f"⚠ {t}")
+                    parts.append(f"{tag}  {dim(desc)}" if desc else tag)
+                print(f"  {bold_ref(rpad)}  {'  '.join(parts)}")
+            print()
+
+        if others:
+            og = group(others)
+            for ref in sorted(og, key=ref_sort_key):
+                print(f"  {bold_ref(ref)}")
+                for v in og[ref]:
+                    print_violation(v, yellow)
+                print()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,50 @@
+# Python
+.venv/
+
+# macOS
+.DS_Store
+
+# KiCad lock/temp/session
+*.lck
+*.kicad_prl
+*.kicad_prj-bak
+.kicad-erc.*.fifo
+fp-info-cache
+
+# KiCad autosave/backup (explicitly ignore backups)
+*~
+~*.kicad_pro
+~*.kicad_sch
+~*.kicad_pcb
+*.bak
+
+# ERC/DRC/netlist and reports
+*.rpt
+*.csv
+*.xml
+*.net
+
+# Plot/fabrication exports
+*.gbr
+*.gbrjob
+*.drl
+*.d356
+*.pos
+*.xy
+*.step
+*.stp
+*.wrl
+*.svg
+*.pdf
+*.ps
+*.plt
+*.dxf
+
+# Common generated output folders
+gerbers/
+fabrication/
+manufacturing/
+plots/
+output/
+out/
+exports/
