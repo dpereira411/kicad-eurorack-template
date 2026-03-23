@@ -9,9 +9,20 @@
    kicad-extract *.kicad_sch > /tmp/extract.json
    ```
 
+   If `kicad-extract` is unavailable, use `kiutils` instead:
+   ```bash
+   kiutils schematic inspect *.kicad_sch --json > /tmp/kiutils_inspect.json
+   ```
+   The inspect output includes symbol instances and net labels; use it as a substitute for net/component enumeration.
+
 2. Dump all nets with node lists:
    ```bash
    jq '.nets | to_entries[] | {net: .key, nodes: [.value.nodes[]]}' /tmp/extract.json
+   ```
+
+   For targeted lookup of a single net's connectivity (e.g. to identify connected nodes before naming):
+   ```bash
+   kiutils schematic query_net *.kicad_sch "Net-(R3-Pad1)" --json
    ```
 
 3. Classify each net:

@@ -7,7 +7,7 @@ metadata:
 
 # kicad-eurorack-design-review
 
-**Description:** Eurorack schematic design review. Use when asked to review, audit, or check the schematic — runs ERC, validates design spec, checks manufacturing readiness. Primary ERC tool: `bin/erc-fmt file.kicad_sch`. Structural data via `kicad-extract` when available.
+**Description:** Eurorack schematic design review. Use when asked to review, audit, or check the schematic — runs ERC, validates design spec, checks manufacturing readiness. Primary ERC tool: `bin/erc-fmt file.kicad_sch`. Structural data via `kicad-extract` (broad JSON dump) or `kiutils` (targeted queries and intent validation) when available.
 
 ---
 
@@ -59,7 +59,30 @@ jq '.components["U5"].pins, .nets["5V"].nodes' /tmp/extract.json
 
 Do not assume one shape blindly. First inspect type, then use the corresponding query pattern.
 
-If `kicad-extract` is unavailable, state that and limit review to ERC + `spec.json` + BOM CSV.
+If `kicad-extract` is unavailable, use `kiutils schematic inspect` as a fallback for structural data (see §2a below). If both are unavailable, limit review to ERC + `spec.json` + BOM CSV.
+
+### 2a. Targeted queries with kiutils (use instead of broad kicad-extract | jq when you need a specific component or net)
+
+```bash
+# Schematic overview — symbol instances, net count, label list
+kiutils schematic inspect file.kicad_sch --json
+
+# Single component detail (pins, properties, lib_id)
+kiutils schematic query_component file.kicad_sch U5 --json
+
+# Net connectivity — which pins sit on a given net
+kiutils schematic query_net file.kicad_sch "5V" --json
+
+# Unconnected wire segments
+kiutils schematic query_unconnected file.kicad_sch --json
+
+# Validate schematic against spec.json intent rules (net existence, values, footprints)
+kiutils schematic check_intent file.kicad_sch spec.json
+```
+
+`kiutils` outputs exit code 0 (pass), 1 (validation issues), or 2 (I/O error). Use `--json` for machine-readable output and `--diagnostics` to include structured diagnostic data on stderr.
+
+Prefer `kiutils schematic query_component` / `query_net` over `kicad-extract | jq` for targeted one-off lookups — it avoids re-running the full extraction and returns a cleaner schema. Use `kicad-extract` when you need to query many components or nets in a single pass.
 
 ### 2.1 Bypass capacitor audit (always run for `design` and `risk`)
 
